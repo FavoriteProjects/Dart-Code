@@ -494,6 +494,7 @@ export class DebugConfigProvider implements DebugConfigurationProvider {
 			debugConfig.flutterPlatform = debugConfig.flutterPlatform || "default";
 			debugConfig.flutterPath = debugConfig.flutterPath || path.join(this.workspaceContext.sdks.flutter, flutterPath);
 			debugConfig.flutterCustomRunScript = this.workspaceContext.workspaceConfig?.flutterRunScript;
+			debugConfig.flutterCustomTestScript = this.workspaceContext.workspaceConfig?.flutterTestScript;
 			debugConfig.flutterRunLogFile = this.insertSessionName(debugConfig, debugConfig.flutterRunLogFile || conf.flutterRunLogFile);
 			debugConfig.flutterTestLogFile = this.insertSessionName(debugConfig, debugConfig.flutterTestLogFile || conf.flutterTestLogFile);
 			if (!debugConfig.deviceId && device) {
