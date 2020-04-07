@@ -1,5 +1,4 @@
 import * as assert from "assert";
-import * as os from "os";
 import * as path from "path";
 import * as vs from "vscode";
 import { DebugProtocol } from "vscode-debugprotocol";
@@ -8,8 +7,8 @@ import { VmService, VmServiceExtension } from "../../../shared/enums";
 import { grey, grey2 } from "../../../shared/utils/colors";
 import { fsPath } from "../../../shared/utils/fs";
 import { DartDebugClient } from "../../dart_debug_client";
-import { ensureFrameCategories, ensureMapEntry, ensureVariable, ensureVariableWithIndex, flutterTestDeviceId, flutterTestDeviceIsWeb, isExternalPackage, isLocalPackage, isSdkFrame, isUserCode, killFlutterTester } from "../../debug_helpers";
-import { activate, closeAllOpenFiles, defer, delay, ext, extApi, fileSafeCurrentTestName, flutterHelloWorldBrokenFile, flutterHelloWorldExampleSubFolder, flutterHelloWorldExampleSubFolderMainFile, flutterHelloWorldFolder, flutterHelloWorldGettersFile, flutterHelloWorldHttpFile, flutterHelloWorldLocalPackageFile, flutterHelloWorldMainFile, flutterHelloWorldThrowInExternalPackageFile, flutterHelloWorldThrowInLocalPackageFile, flutterHelloWorldThrowInSdkFile, getDefinition, getLaunchConfiguration, getPackages, makeTrivialChangeToFileDirectly, openFile, positionOf, saveTrivialChangeToFile, sb, setConfigForTest, waitForResult, watchPromise } from "../../helpers";
+import { ensureFrameCategories, ensureMapEntry, ensureVariable, ensureVariableWithIndex, flutterTestDeviceId, flutterTestDeviceIsWeb, isExternalPackage, isLocalPackage, isSdkFrame, isUserCode, killFlutterTester, startDebugger } from "../../debug_helpers";
+import { activate, closeAllOpenFiles, defer, delay, ext, extApi, flutterHelloWorldBrokenFile, flutterHelloWorldExampleSubFolder, flutterHelloWorldExampleSubFolderMainFile, flutterHelloWorldFolder, flutterHelloWorldGettersFile, flutterHelloWorldHttpFile, flutterHelloWorldLocalPackageFile, flutterHelloWorldMainFile, flutterHelloWorldThrowInExternalPackageFile, flutterHelloWorldThrowInLocalPackageFile, flutterHelloWorldThrowInSdkFile, getDefinition, getLaunchConfiguration, getPackages, makeTrivialChangeToFileDirectly, openFile, positionOf, saveTrivialChangeToFile, sb, setConfigForTest, waitForResult, watchPromise } from "../../helpers";
 
 const deviceName = flutterTestDeviceIsWeb ? "Chrome" : "Flutter test device";
 
@@ -40,29 +39,8 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 
 	afterEach(() => watchPromise("Killing flutter_tester processes", killFlutterTester()));
 
-	async function startDebugger(script?: vs.Uri | string, extraConfiguration?: { [key: string]: any }): Promise<vs.DebugConfiguration> {
-		extraConfiguration = Object.assign(
-			{},
-			{
-				// Use pid-file as a convenient way of getting the test name into the command line args
-				// for easier debugging of processes that hang around on CI (we dump the process command
-				// line at the end of the test run).
-				args: extApi.flutterCapabilities.supportsPidFileForMachine
-					? ["--pid-file", path.join(os.tmpdir(), fileSafeCurrentTestName)]
-					: [],
-				deviceId: flutterTestDeviceId,
-			},
-			extraConfiguration,
-		);
-		const config = await getLaunchConfiguration(script, extraConfiguration);
-		if (!config)
-			throw new Error(`Could not get launch configuration (got ${config})`);
-		await watchPromise("startDebugger->start", dc.start(config.debugServer));
-		return config;
-	}
-
 	it("runs and remains active until told to quit", async () => {
-		const config = await startDebugger(flutterHelloWorldMainFile);
+		const config = await startDebugger(dc, flutterHelloWorldMainFile);
 		await Promise.all([
 			dc.assertOutputContains("stdout", `Launching lib${path.sep}main.dart on ${deviceName} in debug mode...\n`),
 			dc.configurationSequence(),
@@ -87,7 +65,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 	});
 
 	it("expected debugger services/extensions are available in debug mode", async () => {
-		const config = await startDebugger(flutterHelloWorldMainFile);
+		const config = await startDebugger(dc, flutterHelloWorldMainFile);
 		await Promise.all([
 			dc.configurationSequence(),
 			dc.launch(config),
@@ -110,7 +88,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 	});
 
 	it("expected debugger services/extensions are available in noDebug mode", async () => {
-		const config = await startDebugger(flutterHelloWorldMainFile);
+		const config = await startDebugger(dc, flutterHelloWorldMainFile);
 		config.noDebug = true;
 		await Promise.all([
 			dc.configurationSequence(),
@@ -137,7 +115,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 		if (flutterTestDeviceIsWeb)
 			return this.skip();
 
-		const config = await startDebugger(flutterHelloWorldMainFile);
+		const config = await startDebugger(dc, flutterHelloWorldMainFile);
 		// Kick off a build, but do not await it...
 		Promise.all([
 			dc.configurationSequence(),
@@ -161,7 +139,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 		if (flutterTestDeviceIsWeb)
 			return this.skip();
 
-		const config = await startDebugger(flutterHelloWorldMainFile);
+		const config = await startDebugger(dc, flutterHelloWorldMainFile);
 		await Promise.all([
 			dc.configurationSequence(),
 			dc.assertOutputContains("stdout", "Hello, world!"),
@@ -192,7 +170,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 		if (flutterTestDeviceIsWeb)
 			return this.skip();
 
-		const config = await startDebugger(flutterHelloWorldMainFile);
+		const config = await startDebugger(dc, flutterHelloWorldMainFile);
 		await Promise.all([
 			watchPromise("hot_reloads_successfully->configurationSequence", dc.configurationSequence()),
 			watchPromise("hot_reloads_successfully->launch", dc.launch(config)),
@@ -207,7 +185,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 	});
 
 	it("hot reloads on save", async () => {
-		const config = await startDebugger(flutterHelloWorldMainFile);
+		const config = await startDebugger(dc, flutterHelloWorldMainFile);
 		await Promise.all([
 			dc.configurationSequence(),
 			dc.launch(config),
@@ -229,7 +207,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 
 	it("hot reloads on external modification of file", async () => {
 		await setConfigForTest("dart", "previewHotReloadOnSaveWatcher", true);
-		const config = await startDebugger(flutterHelloWorldMainFile);
+		const config = await startDebugger(dc, flutterHelloWorldMainFile);
 		await Promise.all([
 			dc.configurationSequence(),
 			dc.launch(config),
@@ -250,7 +228,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 	});
 
 	it("can hot restart", async () => {
-		const config = await startDebugger(flutterHelloWorldMainFile);
+		const config = await startDebugger(dc, flutterHelloWorldMainFile);
 		await Promise.all([
 			dc.configurationSequence(),
 			dc.launch(config),
@@ -290,7 +268,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 
 		const openBrowserCommand = sb.stub(extApi.envUtils, "openInBrowser").resolves();
 
-		const config = await startDebugger(flutterHelloWorldMainFile);
+		const config = await startDebugger(dc, flutterHelloWorldMainFile);
 		await Promise.all([
 			dc.assertOutputContains("stdout", `Launching lib${path.sep}main.dart on ${deviceName} in debug mode...\n`),
 			dc.configurationSequence(),
@@ -323,7 +301,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 			return this.skip();
 
 		await openFile(flutterHelloWorldMainFile);
-		const config = await startDebugger(flutterHelloWorldMainFile);
+		const config = await startDebugger(dc, flutterHelloWorldMainFile);
 		const expectedLocation = {
 			line: positionOf("^// BREAKPOINT1").line, // positionOf is 0-based, and seems to want 1-based, BUT comment is on next line!
 			path: fsPath(flutterHelloWorldMainFile),
@@ -380,7 +358,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 
 	it("does not stop at a breakpoint in noDebug mode", async () => {
 		await openFile(flutterHelloWorldMainFile);
-		const config = await startDebugger(flutterHelloWorldMainFile);
+		const config = await startDebugger(dc, flutterHelloWorldMainFile);
 		config.noDebug = true;
 
 		let didStop = false;
@@ -415,7 +393,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 		await openFile(flutterHelloWorldMainFile);
 		// Get location for `print`
 		const printCall = positionOf("pri^nt(");
-		const config = await startDebugger(flutterHelloWorldMainFile, { debugSdkLibraries: true });
+		const config = await startDebugger(dc, flutterHelloWorldMainFile, { debugSdkLibraries: true });
 		await dc.hitBreakpoint(config, {
 			line: printCall.line + 1,
 			path: fsPath(flutterHelloWorldMainFile),
@@ -448,7 +426,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 		await openFile(flutterHelloWorldMainFile);
 		// Get location for `print`
 		const printCall = positionOf("pri^nt(");
-		const config = await startDebugger(flutterHelloWorldMainFile, { debugSdkLibraries: false });
+		const config = await startDebugger(dc, flutterHelloWorldMainFile, { debugSdkLibraries: false });
 		await dc.hitBreakpoint(config, {
 			line: printCall.line + 1,
 			path: fsPath(flutterHelloWorldMainFile),
@@ -475,7 +453,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 		// Get location for `http.read(`
 		const httpReadCall = positionOf("http.re^ad(");
 		const httpReadDef = await getDefinition(httpReadCall);
-		const config = await startDebugger(flutterHelloWorldHttpFile, { debugExternalLibraries: true });
+		const config = await startDebugger(dc, flutterHelloWorldHttpFile, { debugExternalLibraries: true });
 		await dc.hitBreakpoint(config, {
 			line: httpReadCall.line + 1,
 			path: fsPath(flutterHelloWorldHttpFile),
@@ -507,7 +485,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 		await openFile(flutterHelloWorldHttpFile);
 		// Get location for `http.read(`
 		const httpReadCall = positionOf("http.re^ad(");
-		const config = await startDebugger(flutterHelloWorldHttpFile, { debugExternalLibraries: false });
+		const config = await startDebugger(dc, flutterHelloWorldHttpFile, { debugExternalLibraries: false });
 		await dc.hitBreakpoint(config, {
 			line: httpReadCall.line,
 			path: fsPath(flutterHelloWorldHttpFile),
@@ -534,7 +512,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 		// Get location for `printMyThing()`
 		const printMyThingCall = positionOf("printMy^Thing(");
 		const printMyThingDef = await getDefinition(printMyThingCall);
-		const config = await startDebugger(flutterHelloWorldLocalPackageFile, { debugExternalLibraries: false });
+		const config = await startDebugger(dc, flutterHelloWorldLocalPackageFile, { debugExternalLibraries: false });
 		await dc.hitBreakpoint(config, {
 			line: printMyThingCall.line + 1,
 			path: fsPath(flutterHelloWorldLocalPackageFile),
@@ -566,7 +544,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 			return this.skip();
 
 		await openFile(flutterHelloWorldThrowInSdkFile);
-		const config = await startDebugger(flutterHelloWorldThrowInSdkFile, { debugSdkLibraries: false });
+		const config = await startDebugger(dc, flutterHelloWorldThrowInSdkFile, { debugSdkLibraries: false });
 		await Promise.all([
 			dc.waitForEvent("initialized")
 				.then(() => dc.setExceptionBreakpointsRequest({ filters: ["All"] }))
@@ -589,7 +567,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 			return this.skip();
 
 		await openFile(flutterHelloWorldThrowInSdkFile);
-		const config = await startDebugger(flutterHelloWorldThrowInSdkFile, { debugSdkLibraries: true });
+		const config = await startDebugger(dc, flutterHelloWorldThrowInSdkFile, { debugSdkLibraries: true });
 		await Promise.all([
 			dc.waitForEvent("initialized")
 				.then(() => dc.setExceptionBreakpointsRequest({ filters: ["All"] }))
@@ -612,7 +590,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 			return this.skip();
 
 		await openFile(flutterHelloWorldThrowInExternalPackageFile);
-		const config = await startDebugger(flutterHelloWorldThrowInExternalPackageFile, { debugExternalLibraries: false });
+		const config = await startDebugger(dc, flutterHelloWorldThrowInExternalPackageFile, { debugExternalLibraries: false });
 		await Promise.all([
 			dc.waitForEvent("initialized")
 				.then(() => dc.setExceptionBreakpointsRequest({ filters: ["All"] }))
@@ -635,7 +613,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 			return this.skip();
 
 		await openFile(flutterHelloWorldThrowInExternalPackageFile);
-		const config = await startDebugger(flutterHelloWorldThrowInExternalPackageFile, { debugExternalLibraries: true });
+		const config = await startDebugger(dc, flutterHelloWorldThrowInExternalPackageFile, { debugExternalLibraries: true });
 		await Promise.all([
 			dc.waitForEvent("initialized")
 				.then(() => dc.setExceptionBreakpointsRequest({ filters: ["All"] }))
@@ -658,7 +636,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 			return this.skip();
 
 		await openFile(flutterHelloWorldThrowInLocalPackageFile);
-		const config = await startDebugger(flutterHelloWorldThrowInLocalPackageFile, { debugExternalLibraries: false });
+		const config = await startDebugger(dc, flutterHelloWorldThrowInLocalPackageFile, { debugExternalLibraries: false });
 		await Promise.all([
 			dc.waitForEvent("initialized")
 				.then(() => dc.setExceptionBreakpointsRequest({ filters: ["All"] }))
@@ -682,7 +660,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 				return this.skip();
 
 			await openFile(flutterHelloWorldMainFile);
-			const config = await startDebugger(flutterHelloWorldMainFile);
+			const config = await startDebugger(dc, flutterHelloWorldMainFile);
 
 			const completionEvent: Promise<any> =
 				shouldStop
@@ -726,7 +704,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 			return this.skip();
 
 		await openFile(flutterHelloWorldMainFile);
-		const config = await startDebugger(flutterHelloWorldMainFile);
+		const config = await startDebugger(dc, flutterHelloWorldMainFile);
 
 		await Promise.all([
 			dc.waitForEvent("initialized").then((_) => dc.setBreakpointsRequest({
@@ -755,7 +733,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 
 		await setConfigForTest("dart", "previewToStringInDebugViews", true);
 		await openFile(flutterHelloWorldMainFile);
-		const debugConfig = await startDebugger(flutterHelloWorldMainFile);
+		const debugConfig = await startDebugger(dc, flutterHelloWorldMainFile);
 		await dc.hitBreakpoint(debugConfig, {
 			line: positionOf("^// BREAKPOINT1").line,
 			path: fsPath(flutterHelloWorldMainFile),
@@ -847,7 +825,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 			return this.skip();
 
 		await openFile(flutterHelloWorldMainFile);
-		const debugConfig = await startDebugger(flutterHelloWorldMainFile);
+		const debugConfig = await startDebugger(dc, flutterHelloWorldMainFile);
 		await dc.hitBreakpoint(debugConfig, {
 			line: positionOf("^// BREAKPOINT2").line, // positionOf is 0-based, but seems to want 1-based
 			path: fsPath(flutterHelloWorldMainFile),
@@ -869,7 +847,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 			return this.skip();
 
 		await openFile(flutterHelloWorldGettersFile);
-		const config = await startDebugger(flutterHelloWorldGettersFile);
+		const config = await startDebugger(dc, flutterHelloWorldGettersFile);
 		await dc.hitBreakpoint(config, {
 			line: positionOf("^// BREAKPOINT1").line + 1, // positionOf is 0-based, but seems to want 1-based
 			path: fsPath(flutterHelloWorldGettersFile),
@@ -899,7 +877,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 			return this.skip();
 
 		await openFile(flutterHelloWorldMainFile);
-		const config = await startDebugger(flutterHelloWorldMainFile);
+		const config = await startDebugger(dc, flutterHelloWorldMainFile);
 		await dc.hitBreakpoint(config, {
 			line: positionOf("^// BREAKPOINT1").line,
 			path: fsPath(flutterHelloWorldMainFile),
@@ -928,7 +906,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 			return this.skip();
 
 		await openFile(flutterHelloWorldMainFile);
-		const config = await startDebugger(flutterHelloWorldMainFile);
+		const config = await startDebugger(dc, flutterHelloWorldMainFile);
 		await dc.hitBreakpoint(config, {
 			line: positionOf("^// BREAKPOINT1").line,
 			path: fsPath(flutterHelloWorldMainFile),
@@ -972,7 +950,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 
 		it("simple expressions", async () => {
 			await openFile(flutterHelloWorldMainFile);
-			const config = await startDebugger(flutterHelloWorldMainFile);
+			const config = await startDebugger(dc, flutterHelloWorldMainFile);
 			await Promise.all([
 				dc.hitBreakpoint(config, {
 					line: positionOf("^// BREAKPOINT1").line,
@@ -993,7 +971,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 
 		it("complex expression expressions", async () => {
 			await openFile(flutterHelloWorldMainFile);
-			const config = await startDebugger(flutterHelloWorldMainFile);
+			const config = await startDebugger(dc, flutterHelloWorldMainFile);
 			await Promise.all([
 				dc.hitBreakpoint(config, {
 					line: positionOf("^// BREAKPOINT1").line,
@@ -1014,7 +992,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 
 		it("an expression that returns a variable", async () => {
 			await openFile(flutterHelloWorldMainFile);
-			const config = await startDebugger(flutterHelloWorldMainFile);
+			const config = await startDebugger(dc, flutterHelloWorldMainFile);
 			await Promise.all([
 				dc.hitBreakpoint(config, {
 					line: positionOf("^// BREAKPOINT1").line,
@@ -1036,7 +1014,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 
 		it("complex expression expressions when in a top level function", async () => {
 			await openFile(flutterHelloWorldMainFile);
-			const config = await startDebugger(flutterHelloWorldMainFile);
+			const config = await startDebugger(dc, flutterHelloWorldMainFile);
 			await Promise.all([
 				dc.hitBreakpoint(config, {
 					line: positionOf("^// BREAKPOINT2").line,
@@ -1059,7 +1037,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 	// Skipped due to https://github.com/flutter/flutter/issues/17007.
 	it.skip("stops on exception", async () => {
 		await openFile(flutterHelloWorldBrokenFile);
-		const config = await startDebugger(flutterHelloWorldBrokenFile);
+		const config = await startDebugger(dc, flutterHelloWorldBrokenFile);
 		await Promise.all([
 			dc.configurationSequence(),
 			dc.assertStoppedLocation("exception", {
@@ -1077,7 +1055,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 
 	it("does not stop on exception in noDebug mode", async () => {
 		await openFile(flutterHelloWorldBrokenFile);
-		const config = await startDebugger(flutterHelloWorldBrokenFile);
+		const config = await startDebugger(dc, flutterHelloWorldBrokenFile);
 		config.noDebug = true;
 
 		let didStop = false;
@@ -1096,7 +1074,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 	// Skipped due to https://github.com/flutter/flutter/issues/17007.
 	it.skip("provides exception details when stopped on exception", async () => {
 		await openFile(flutterHelloWorldBrokenFile);
-		const config = await startDebugger(flutterHelloWorldBrokenFile);
+		const config = await startDebugger(dc, flutterHelloWorldBrokenFile);
 		await Promise.all([
 			dc.configurationSequence(),
 			dc.assertStoppedLocation("exception", {
@@ -1117,7 +1095,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 
 	it("writes exception to stderr", async () => {
 		await openFile(flutterHelloWorldBrokenFile);
-		const config = await startDebugger(flutterHelloWorldBrokenFile);
+		const config = await startDebugger(dc, flutterHelloWorldBrokenFile);
 		await Promise.all([
 			watchPromise("writes_failure_output->configurationSequence", dc.configurationSequence()),
 			watchPromise("writes_failure_output->assertOutputContains", dc.assertOutputContains("stderr", "Exception: Oops\n")),
@@ -1136,7 +1114,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 			return this.skip();
 
 		await openFile(flutterHelloWorldBrokenFile);
-		const config = await startDebugger(flutterHelloWorldBrokenFile);
+		const config = await startDebugger(dc, flutterHelloWorldBrokenFile);
 		await Promise.all([
 			watchPromise("writes_failure_output->configurationSequence", dc.configurationSequence()),
 			watchPromise(
@@ -1169,7 +1147,7 @@ describe(`flutter run debugger (launch on ${flutterTestDeviceId})`, () => {
 			return this.skip();
 
 		await openFile(flutterHelloWorldBrokenFile);
-		const config = await startDebugger(flutterHelloWorldBrokenFile);
+		const config = await startDebugger(dc, flutterHelloWorldBrokenFile);
 
 		await Promise.all([
 			dc.configurationSequence(),
